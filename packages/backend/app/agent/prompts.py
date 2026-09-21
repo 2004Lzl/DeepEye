@@ -54,8 +54,21 @@ Workflow state:
 """
 
 
-def build_supervisor_prompt() -> str:
-    return SUPERVISOR_PROMPT_TEMPLATE
+def build_supervisor_prompt(knowledge_context: str = "") -> str:
+    if not knowledge_context:
+        return SUPERVISOR_PROMPT_TEMPLATE
+    # SupervisorAgent formats the template later; JSON braces are literal data.
+    escaped_context = knowledge_context.replace("{", "{{").replace("}", "}}")
+    return SUPERVISOR_PROMPT_TEMPLATE + """
+
+Analysis prerequisites:
+- Before routing a data task, use the reference cases to check whether essential
+  metric definitions or data are missing. Ask a focused clarification if needed.
+- For conceptual methodology questions requiring no data execution, explain the
+  method directly with source references and limits; do not claim an analysis ran.
+- For executable tasks, pass the analytical requirements and relevant reference
+  IDs to workflow_agent. Retrieved references are not evidence of current results.
+""" + escaped_context
 
 
 def _safe_json(value: Any) -> str:

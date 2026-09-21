@@ -14,6 +14,8 @@ from app.schemas import AgentEvent, AgentEventType, AgentInput, UserMessage, San
 from app.workflow.services.engine import build_registry
 from app.agent.prompts import build_supervisor_prompt
 from app.workflow.prompts import build_workflow_prompt
+from app.knowledge.retrieval import retrieve_knowledge
+from app.tasks.analysis_knowledge import publish_knowledge_selection
 from app.workflow.services.tracking import (
     complete_chat_turn_record,
     create_chat_turn_record,
@@ -123,11 +125,17 @@ async def _run_agent_async(agent_input: AgentInput) -> None:
     datasources_info = get_datasources_info(datasource_ids, user_id)
     datasources_schema = get_datasources_schema(datasource_ids, user_id)
     datasources_context = build_datasources_context(datasources_info)
+    knowledge = retrieve_knowledge(
+        agent_input.user_input,
+        enabled=settings.ANALYSIS_KNOWLEDGE_ENABLED,
+    )
+    knowledge_context = knowledge.prompt_context()
 
     workflow_prompt = build_workflow_prompt(
         build_registry(),
         datasource=datasources_info,  # Now a list
         tables=datasources_schema,    # Now includes datasource_id/name
+        knowledge_context=knowledge_context,
     )
     tools.append(
         create_design_workflow_tool(
@@ -156,12 +164,13 @@ async def _run_agent_async(agent_input: AgentInput) -> None:
         factory = AgentFactory(model, checkpointer)
         supervisor = factory.create_supervisor(
             tools,
-            system_prompt_template=build_supervisor_prompt(),
+            system_prompt_template=build_supervisor_prompt(knowledge_context=knowledge_context),
         )
 
         try:
             logger.info("[AgentTask] Starting agent execution...")
             await cb_supervisor._publish(AgentEvent(type=AgentEventType.AGENT_START))
+            await publish_knowledge_selection(cb_supervisor, knowledge)
             await supervisor.ainvoke(
                 user_input,
                 thread_id=session_id,
