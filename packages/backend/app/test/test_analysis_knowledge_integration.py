@@ -89,7 +89,8 @@ async def test_missing_library_is_visible_but_does_not_replace_answer(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("enabled", [True, False])
-async def test_actual_task_passes_knowledge_and_persists_reference_step(monkeypatch, enabled):
+@pytest.mark.parametrize("has_data", [True, False])
+async def test_actual_task_passes_knowledge_and_persists_reference_step(monkeypatch, enabled, has_data):
     """Run the real task body; fake external LLM, DB, sandbox, Redis boundaries."""
     from app.schemas import AgentInput
     from app.tasks import agent_tasks
@@ -101,6 +102,10 @@ async def test_actual_task_passes_knowledge_and_persists_reference_step(monkeypa
     async def no_op(*args, **kwargs):
         pass
 
+    async def unexpected_sandbox(*args, **kwargs):
+        assert has_data, "No-data conversation must not require a sandbox"
+        captured["sandbox"] = True
+
     bus.close = no_op
     monkeypatch.setattr(agent_tasks, "_create_model", lambda: object())
     monkeypatch.setattr(agent_tasks, "RedisEventBus", lambda url: bus)
@@ -109,7 +114,7 @@ async def test_actual_task_passes_knowledge_and_persists_reference_step(monkeypa
     monkeypatch.setattr(agent_tasks, "create_chat_turn_record", lambda *a, **kw: SimpleNamespace(id="turn"))
     monkeypatch.setattr(agent_tasks, "complete_chat_turn_record", lambda *a, **kw: None)
     monkeypatch.setattr(agent_tasks, "fail_chat_turn_record", lambda *a, **kw: pytest.fail("Task failed"))
-    monkeypatch.setattr(agent_tasks, "sandbox_manager", SimpleNamespace(get_or_create_sandbox=no_op))
+    monkeypatch.setattr(agent_tasks, "sandbox_manager", SimpleNamespace(get_or_create_sandbox=unexpected_sandbox))
     monkeypatch.setattr(agent_tasks, "list_file_datasources", lambda *a: [])
     monkeypatch.setattr(agent_tasks, "get_datasources_info", lambda *a: [])
     monkeypatch.setattr(agent_tasks, "get_datasources_schema", lambda *a: [])
@@ -134,6 +139,7 @@ async def test_actual_task_passes_knowledge_and_persists_reference_step(monkeypa
             pass
 
         def create_supervisor(self, tools, system_prompt_template):
+            assert len(tools) == (2 if has_data else 0)
             captured["supervisor"] = system_prompt_template.format(datasources_context="No data")
             return self
 
@@ -141,8 +147,12 @@ async def test_actual_task_passes_knowledge_and_persists_reference_step(monkeypa
             await config["callbacks"][0].on_llm_new_token("先确认留存口径。")
 
     monkeypatch.setattr(agent_tasks, "AgentFactory", Factory)
-    await agent_tasks._run_agent_async(AgentInput(session_id="test-session", user_input="次日留存怎么算？", datasource_ids=[]))
-    assert ("M02" in captured["planner"]) is enabled
+    await agent_tasks._run_agent_async(AgentInput(session_id="test-session", user_input="次日留存怎么算？", datasource_ids=["test-data"] if has_data else []))
+    assert ("sandbox" in captured) is has_data
+    if has_data:
+        assert ("M02" in captured["planner"]) is enabled
+    else:
+        assert "planner" not in captured
     assert ("M02" in captured["supervisor"]) is enabled
     assert saved[-1].content == "先确认留存口径。"
     assert bool(saved[-1].steps) is enabled

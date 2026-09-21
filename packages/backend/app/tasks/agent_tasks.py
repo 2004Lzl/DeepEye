@@ -93,25 +93,26 @@ async def _run_agent_async(agent_input: AgentInput) -> None:
         turn_id=turn_id,
         collector=collector,
     )
-    # Get existing sandbox or create new one (reuse within session)
-    channel = f"session:{session_id}"
-    logger.info(f"[AgentTask] Getting or creating sandbox for session: {session_id}")
-    await sandbox_manager.get_or_create_sandbox(session_id)
-    
-    # Notify frontend that sandbox is ready (to open files panel)
-    logger.info("[AgentTask] Sandbox ready, publishing STARTED event")
-    await event_bus.publish(
-        channel, 
-        SandboxEvent(type=SandboxEventType.STARTED, source="sandbox").model_dump_json()
-    )
-    
     # Build tool - handle data sources
     datasource_ids = (
         list(dict.fromkeys(agent_input.datasource_ids))
         if agent_input.datasource_ids is not None
         else get_session_attachment_ids(session_id)
     )
-    
+
+    if datasource_ids:
+        # Get existing sandbox or create new one (reuse within session)
+        channel = f"session:{session_id}"
+        logger.info(f"[AgentTask] Getting or creating sandbox for session: {session_id}")
+        await sandbox_manager.get_or_create_sandbox(session_id)
+
+        # Notify frontend that sandbox is ready (to open files panel)
+        logger.info("[AgentTask] Sandbox ready, publishing STARTED event")
+        await event_bus.publish(
+            channel,
+            SandboxEvent(type=SandboxEventType.STARTED, source="sandbox").model_dump_json()
+        )
+
     # Sync file datasources
     file_datasources = list_file_datasources(datasource_ids, user_id)
     
@@ -131,28 +132,29 @@ async def _run_agent_async(agent_input: AgentInput) -> None:
     )
     knowledge_context = knowledge.prompt_context()
 
-    workflow_prompt = build_workflow_prompt(
-        build_registry(),
-        datasource=datasources_info,  # Now a list
-        tables=datasources_schema,    # Now includes datasource_id/name
-        knowledge_context=knowledge_context,
-    )
-    tools.append(
-        create_design_workflow_tool(
-            model,
-            session_id,
-            workflow_prompt,
-            callbacks=[cb_workflow],
-            turn_id=turn_id,
+    if datasource_ids:
+        workflow_prompt = build_workflow_prompt(
+            build_registry(),
+            datasource=datasources_info,  # Now a list
+            tables=datasources_schema,    # Now includes datasource_id/name
+            knowledge_context=knowledge_context,
         )
-    )
-    tools.append(
-        create_summarize_workflow_result_tool(
-            model,
-            session_id,
-            turn_id=turn_id,
+        tools.append(
+            create_design_workflow_tool(
+                model,
+                session_id,
+                workflow_prompt,
+                callbacks=[cb_workflow],
+                turn_id=turn_id,
+            )
         )
-    )
+        tools.append(
+            create_summarize_workflow_result_tool(
+                model,
+                session_id,
+                turn_id=turn_id,
+            )
+        )
 
     user_input = agent_input.user_input
 
