@@ -12,7 +12,8 @@ Current Session Context:
 Routing policy:
 - Use `workflow_agent` for any request that needs attached data, SQL, code execution, workflow execution, report generation, dashboard generation, or video generation.
 - If the user asks for data analysis but the required data is missing, ask the user to upload a file or connect a database.
-- Answer directly only for simple conversational requests that need no workflow.
+- Answer conceptual methodology questions directly when no data execution is requested, even without attached data. Explain prerequisites and limits; never claim calculations were executed.
+- Answer other simple conversational requests directly when they need no workflow.
 
 Execution discipline:
 - Choose one path per turn: direct answer or `workflow_agent`.

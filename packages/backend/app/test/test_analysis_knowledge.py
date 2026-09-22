@@ -16,6 +16,9 @@ from app.knowledge.retrieval import load_catalog, retrieve_knowledge
         ("客户端埋点上报数量突变", "C03"),
         ("各分群都改善但整体没变化", "C04"),
         ("实验不显著就说明没有影响吗？", "C05"),
+        ("用户级实验每天看p值，显著就提前停止", "C06"),
+        ("几个功能的季度收益可以相加吗？", "C07"),
+        ("检查用户随机分配比例是否偏离设计", "C01"),
     ],
 )
 def test_business_questions_retrieve_relevant_case(question, expected):

@@ -30,6 +30,13 @@ checks, analysis steps and conclusion limits, followed by node/schema/edge notes
 This is an operational plan, not hidden chain-of-thought. Preserve source IDs/URLs
 when passing methodology to answer/report nodes; actual findings must come from
 executed data. Do not claim a retrieved case or a suggested check was executed.
+Embedded examples are synthetic SQLite fixtures, not the current user's data or
+business definitions. Check dialect, schema, grain, time boundaries and confirmed
+metric semantics before adapting a query. Never execute example setup_sql against
+a user's database. Expected example outputs are not current-task findings.
+When using a card in a user-facing answer, cite its ID, source title and source URL,
+not only an internal card ID. Distinguish facts reported by the source from our
+curated methodological cautions; do not attribute every card annotation to the source.
 Reference cards (JSON data):
 """
 
@@ -49,6 +56,31 @@ class Source(BaseModel):
         return value
 
 
+class MetricDefinition(BaseModel):
+    """Conditional semantics, not a project's chosen metric definition."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    name: str = Field(min_length=1)
+    definition: str = Field(min_length=1)
+    grain: str = Field(min_length=1)
+    requires_confirmation: list[str] = Field(min_length=1)
+
+
+class VerifiedExample(BaseModel):
+    """An executable synthetic example, never a default business definition."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    id: str = Field(pattern=r"^E[0-9]{2}$")
+    question: str = Field(min_length=1)
+    assumptions: list[str] = Field(min_length=1)
+    dialect: Literal["sqlite"]
+    setup_sql: str = Field(min_length=1)
+    query_sql: str = Field(min_length=1)
+    expected_columns: list[str] = Field(min_length=1)
+    expected_rows: list[list[str | int | float | None]] = Field(min_length=1)
+    limitations: list[str] = Field(min_length=1)
+
+
 class Card(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     id: str = Field(pattern=r"^[CM][0-9]{2}$")
@@ -63,6 +95,8 @@ class Card(BaseModel):
     limits: list[str] = Field(min_length=1)
     sources: list[Source] = Field(min_length=1)
     evidence_status: str = Field(min_length=1)
+    metric_definitions: list[MetricDefinition] = Field(default_factory=list)
+    examples: list[VerifiedExample] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -119,7 +153,7 @@ def load_catalog(path: Path = CATALOG_PATH) -> tuple[list[Card], str]:
     cards = [Card.model_validate(record) for record in records]
     if len({card.id for card in cards}) != len(cards):
         raise ValueError("Duplicate card IDs")
-    # Reload on each request: only seven local cards, and edits must be visible.
+    # Reload this small local catalog so edits are visible without a worker restart.
     return cards, hashlib.sha256(raw).hexdigest()
 
 
